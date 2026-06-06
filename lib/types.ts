@@ -8,11 +8,18 @@ export interface PubMedPaper {
   url: string;
 }
 
+export interface SupplementCount {
+  name: string;
+  paperCount: number;
+  pmids: string[];
+}
+
 export interface SearchResponse {
   papers: PubMedPaper[];
   total: number;
-  query: string;    // original user goal input
-  keyword: string;  // PubMed search term extracted by Claude
+  query: string;
+  keyword: string;
+  topSupplements: SupplementCount[];
 }
 
 export interface SearchError {
