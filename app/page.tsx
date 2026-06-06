@@ -2,13 +2,14 @@
 
 import { useState, useRef } from 'react';
 import PaperCard from '@/components/PaperCard';
-import type { PubMedPaper } from '@/lib/types';
+import type { PubMedPaper, SupplementCount } from '@/lib/types';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
 export default function Home() {
   const [query, setQuery] = useState('');
   const [papers, setPapers] = useState<PubMedPaper[]>([]);
+  const [topSupplements, setTopSupplements] = useState<SupplementCount[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [lastQuery, setLastQuery] = useState('');
@@ -24,6 +25,7 @@ export default function Home() {
     setErrorMsg('');
     setPapers([]);
     setKeyword('');
+    setTopSupplements([]);
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
@@ -36,6 +38,7 @@ export default function Home() {
       setPapers(data.papers);
       setLastQuery(data.query);
       setKeyword(data.keyword);
+      setTopSupplements(data.topSupplements ?? []);
       setStatus('success');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Something went wrong.');
@@ -109,6 +112,23 @@ export default function Home() {
                 </p>
                 <p className="mt-0.5 text-xs text-teal-600">
                   Based on your goal: "{lastQuery}"
+                </p>
+              </div>
+            )}
+
+            {/* Top supplement card */}
+            {topSupplements.length > 0 && (
+              <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Most mentioned supplement{topSupplements.length > 1 ? 's' : ''}
+                </p>
+                <p className="mt-1 text-lg font-bold text-amber-900">
+                  {topSupplements.map((s) => s.name).join(' · ')}
+                </p>
+                <p className="mt-0.5 text-sm text-amber-700">
+                  {topSupplements.length === 1
+                    ? `Found in ${topSupplements[0].paperCount} of ${papers.length} papers`
+                    : `Each found in ${topSupplements[0].paperCount} of ${papers.length} papers`}
                 </p>
               </div>
             )}
