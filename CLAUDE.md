@@ -21,7 +21,7 @@
 | PubMed XML parsing | Done — `fast-xml-parser` in `lib/pubmed.ts` |
 | Claude keyword extraction | Done — `extractSearchKeyword()` in `lib/claude.ts` using `claude-sonnet-4-6` |
 | Claude supplement detection | Done — `findSupplementsInPapers()` in `lib/claude.ts` using `claude-haiku-4-5` |
-| Top supplement highlight card | Done — amber card above paper list in `app/page.tsx` |
+| Top supplement highlight card | Done — prominent amber card as the sole result in `app/page.tsx`; only counts supplements reported as effective |
 | Full Claude synthesis / recommendations | Not started — see future direction below |
 | User goal/problem input form | Not started |
 
@@ -91,8 +91,8 @@ GET /api/search?q={query}  (app/api/search/route.ts)
         ▼
 page.tsx renders:
   - teal keyword banner ("Searching PubMed for: X")
-  - amber supplement card ("Most mentioned supplement: Vitamin D — Found in 7 of 10 papers")
-  - PaperCard list
+  - amber supplement card ("Top evidence-backed supplement: Vitamin D — Effective in 7 of 10 papers analyzed")
+  - fallback message if no effective supplements found (no paper list is shown)
 ```
 
 ## PubMed E-utilities API
@@ -134,6 +134,7 @@ page.tsx renders:
 - Model: `claude-haiku-4-5` (~$0.005/search)
 - Single API call with all paper abstracts
 - Prompt asks for JSON: `[{"pmid":"...","supplements":["Vitamin D","Omega-3"]}]`
+- Only supplements the abstract reports as **effective or beneficial** are included — neutral, inconclusive, or negative results are excluded
 - TypeScript counts paper-level frequency (normalized lowercase for dedup, original casing for display)
 - Returns all supplements tied at the highest count
 - Gracefully returns `[]` on API errors or unparseable JSON
