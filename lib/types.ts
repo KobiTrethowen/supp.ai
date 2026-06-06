@@ -11,7 +11,8 @@ export interface PubMedPaper {
 export interface SearchResponse {
   papers: PubMedPaper[];
   total: number;
-  query: string;
+  query: string;    // original user goal input
+  keyword: string;  // PubMed search term extracted by Claude
 }
 
 export interface SearchError {

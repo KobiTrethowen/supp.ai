@@ -12,6 +12,7 @@ export default function Home() {
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [lastQuery, setLastQuery] = useState('');
+  const [keyword, setKeyword] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleSearch(e: React.FormEvent) {
@@ -22,6 +23,7 @@ export default function Home() {
     setStatus('loading');
     setErrorMsg('');
     setPapers([]);
+    setKeyword('');
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
@@ -33,6 +35,7 @@ export default function Home() {
 
       setPapers(data.papers);
       setLastQuery(data.query);
+      setKeyword(data.keyword);
       setStatus('success');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Something went wrong.');
@@ -67,7 +70,7 @@ export default function Home() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. magnesium sleep, vitamin D depression, omega-3 anxiety"
+            placeholder="What are your goals? e.g. I want to lose weight, I struggle to sleep"
             className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm shadow-sm placeholder:text-gray-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
           />
           <button
@@ -97,10 +100,23 @@ export default function Home() {
         {/* Results */}
         {status === 'success' && (
           <div className="mt-6">
+            {/* Extracted keyword banner */}
+            {keyword && (
+              <div className="mb-5 rounded-xl border border-teal-100 bg-teal-50 px-5 py-4">
+                <p className="text-sm text-teal-800">
+                  Searching PubMed for:{' '}
+                  <span className="font-semibold">"{keyword}"</span>
+                </p>
+                <p className="mt-0.5 text-xs text-teal-600">
+                  Based on your goal: "{lastQuery}"
+                </p>
+              </div>
+            )}
+
             <p className="mb-4 text-sm text-gray-500">
               {papers.length === 0
-                ? `No results found for "${lastQuery}".`
-                : `${papers.length} result${papers.length !== 1 ? 's' : ''} for "${lastQuery}"`}
+                ? `No results found for "${keyword || lastQuery}".`
+                : `${papers.length} result${papers.length !== 1 ? 's' : ''}`}
             </p>
 
             {papers.length > 0 && (
@@ -116,7 +132,7 @@ export default function Home() {
         {/* Idle hint */}
         {status === 'idle' && (
           <div className="mt-12 text-center text-sm text-gray-400">
-            Search for a supplement, condition, or goal to find peer-reviewed research
+            Tell us your health goal and we&apos;ll find the peer-reviewed research
           </div>
         )}
 

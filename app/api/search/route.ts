@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchPubMed } from '@/lib/pubmed';
+import { extractSearchKeyword } from '@/lib/claude';
 import type { SearchResponse, SearchError } from '@/lib/types';
 
 export async function GET(
@@ -12,12 +13,13 @@ export async function GET(
   }
 
   try {
-    const papers = await searchPubMed(query, 10);
-    return NextResponse.json({ papers, total: papers.length, query });
+    const keyword = await extractSearchKeyword(query);
+    const papers = await searchPubMed(keyword, 10);
+    return NextResponse.json({ papers, total: papers.length, query, keyword });
   } catch (err) {
-    console.error('PubMed search error:', err);
+    console.error('Search error:', err);
     return NextResponse.json(
-      { error: 'Failed to fetch results from PubMed. Please try again.' },
+      { error: 'Failed to fetch results. Please try again.' },
       { status: 502 }
     );
   }
