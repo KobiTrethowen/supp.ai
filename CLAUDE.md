@@ -19,8 +19,10 @@
 | Next.js scaffold | Done |
 | PubMed search UI + API | Done — `app/page.tsx`, `app/api/search/route.ts`, `lib/pubmed.ts` |
 | PubMed XML parsing | Done — `fast-xml-parser` in `lib/pubmed.ts` |
-| Claude AI synthesis | **Next step** — `lib/claude.ts` + extend `/api/search` |
-| Supplement recommendation UI | Not started |
+| Claude keyword extraction | Done — `extractSearchKeyword()` in `lib/claude.ts` using `claude-sonnet-4-6` |
+| Claude supplement detection | Done — `findSupplementsInPapers()` in `lib/claude.ts` using `claude-haiku-4-5` |
+| Top supplement highlight card | Done — amber card above paper list in `app/page.tsx` |
+| Full Claude synthesis / recommendations | Not started — see future direction below |
 | User goal/problem input form | Not started |
 
 ## Tech Stack
@@ -32,7 +34,7 @@
 | Styling | Tailwind CSS 4 |
 | React | React 19 |
 | XML parser | `fast-xml-parser` ^5 (for PubMed efetch responses) |
-| AI | Anthropic Claude API (`claude-sonnet-4-6`) — **not yet integrated** |
+| AI | Anthropic Claude API — `claude-sonnet-4-6` (keyword extraction) + `claude-haiku-4-5` (supplement detection) |
 | External API | PubMed E-utilities (NCBI) |
 | Package manager | npm |
 | Deployment | Vercel |
@@ -51,6 +53,7 @@ supp.ai/
 │   └── PaperCard.tsx       # Single paper result card (title, authors, abstract, link)
 ├── lib/
 │   ├── pubmed.ts           # PubMed E-utilities API client + XML parser
+│   ├── claude.ts           # Claude API calls: keyword extraction (Sonnet) + supplement detection (Haiku)
 │   └── types.ts            # Shared TypeScript interfaces
 └── AGENTS.md               # Next.js version-specific agent rules (do not delete)
 ```
@@ -61,7 +64,7 @@ supp.ai/
 npm run dev          # Start dev server at http://localhost:3000
 npm run build        # Production build
 npm run lint         # ESLint
-npm run type-check   # tsc --noEmit
+npx tsc --noEmit     # TypeScript type-check (no npm script alias exists)
 ```
 
 ## Data Flow Architecture
@@ -72,13 +75,24 @@ User types query → page.tsx form
         ▼
 GET /api/search?q={query}  (app/api/search/route.ts)
         │
-        ├─► lib/pubmed.ts: searchPubMed(query)
+        ├─► lib/claude.ts: extractSearchKeyword(query)   [claude-sonnet-4-6]
+        │     Turns freeform goal into a concise PubMed keyword (2-4 words)
+        │
+        ├─► lib/pubmed.ts: searchPubMed(keyword, 10)
         │     Step 1 — esearch.fcgi: get matching PMIDs
         │     Step 2 — efetch.fcgi: fetch XML with titles, abstracts, authors
         │     Returns PubMedPaper[]
         │
+        ├─► lib/claude.ts: findSupplementsInPapers(papers)   [claude-haiku-4-5]
+        │     Single call: all 10 abstracts → JSON list of supplements per PMID
+        │     TypeScript counts paper-level frequency, returns top SupplementCount[]
+        │     (all supplements tied at the max count — handles ties)
+        │
         ▼
-page.tsx renders PaperCard for each result
+page.tsx renders:
+  - teal keyword banner ("Searching PubMed for: X")
+  - amber supplement card ("Most mentioned supplement: Vitamin D — Found in 7 of 10 papers")
+  - PaperCard list
 ```
 
 ## PubMed E-utilities API
@@ -107,21 +121,29 @@ page.tsx renders PaperCard for each result
 
 **Environment variable:** `NCBI_API_KEY` (optional but recommended)
 
-## Claude API (next step — not yet implemented)
+## Claude API (integrated)
 
-**Model:** `claude-sonnet-4-6`
+**File:** `lib/claude.ts` — two exported functions:
 
-**Planned file:** `lib/claude.ts`
+### `extractSearchKeyword(userGoal: string): Promise<string>`
+- Model: `claude-sonnet-4-6`
+- Converts a freeform user goal (e.g. "I can't sleep") into a concise PubMed keyword (e.g. "sleep quality insomnia")
+- Called first in the search route before PubMed
 
-**Planned usage:**
-```typescript
-import Anthropic from '@anthropic-ai/sdk';
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+### `findSupplementsInPapers(papers: PubMedPaper[]): Promise<SupplementCount[]>`
+- Model: `claude-haiku-4-5` (~$0.005/search)
+- Single API call with all paper abstracts
+- Prompt asks for JSON: `[{"pmid":"...","supplements":["Vitamin D","Omega-3"]}]`
+- TypeScript counts paper-level frequency (normalized lowercase for dedup, original casing for display)
+- Returns all supplements tied at the highest count
+- Gracefully returns `[]` on API errors or unparseable JSON
 
-// Send PubMed abstracts + user goals → get structured supplement recommendations
-```
+**Environment variable:** `ANTHROPIC_API_KEY`
 
-**What Claude should return** (`SupplementRecommendation[]`):
+## Future Direction — Full Claude Synthesis
+
+The next major step is full supplement recommendations using Claude Sonnet. Planned type:
+
 ```typescript
 interface SupplementRecommendation {
   name: string;
@@ -129,13 +151,9 @@ interface SupplementRecommendation {
   evidenceQuality: 'strong' | 'moderate' | 'preliminary';
   typicalDosage: string;
   caveats: string[];
-  supportingPmids: string[];  // link back to specific PubMed papers
+  supportingPmids: string[];
 }
 ```
-
-**Integration point:** Extend `app/api/search/route.ts` — after getting `PubMedPaper[]` from PubMed, pass them to Claude for synthesis before returning the response.
-
-**Environment variable:** `ANTHROPIC_API_KEY`
 
 ## Environment Variables
 
@@ -165,6 +183,20 @@ interface PubMedPaper {
   journal: string;
   year: string;
   url: string;
+}
+
+interface SupplementCount {
+  name: string;       // display name, e.g. "Vitamin D"
+  paperCount: number; // how many papers mention this supplement
+  pmids: string[];    // PMIDs of papers that mention it
+}
+
+interface SearchResponse {
+  papers: PubMedPaper[];
+  total: number;
+  query: string;                     // original user goal input
+  keyword: string;                   // PubMed keyword extracted by Claude Sonnet
+  topSupplements: SupplementCount[]; // supplements tied at max paper count (may be 1+)
 }
 ```
 
