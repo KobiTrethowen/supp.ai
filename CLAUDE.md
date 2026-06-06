@@ -12,14 +12,27 @@
 3. Claude AI reads the abstracts and synthesizes them into personalized supplement recommendations
 4. User receives structured recommendations with supporting evidence from peer-reviewed research
 
+## Implementation Status
+
+| Part | Status |
+|------|--------|
+| Next.js scaffold | Done |
+| PubMed search UI + API | Done — `app/page.tsx`, `app/api/search/route.ts`, `lib/pubmed.ts` |
+| PubMed XML parsing | Done — `fast-xml-parser` in `lib/pubmed.ts` |
+| Claude AI synthesis | **Next step** — `lib/claude.ts` + extend `/api/search` |
+| Supplement recommendation UI | Not started |
+| User goal/problem input form | Not started |
+
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 14+ (App Router) |
+| Framework | Next.js **16.2.7** (App Router, Turbopack) |
 | Language | TypeScript (strict mode) |
-| Styling | Tailwind CSS |
-| AI | Anthropic Claude API (`claude-sonnet-4-6`) |
+| Styling | Tailwind CSS 4 |
+| React | React 19 |
+| XML parser | `fast-xml-parser` ^5 (for PubMed efetch responses) |
+| AI | Anthropic Claude API (`claude-sonnet-4-6`) — **not yet integrated** |
 | External API | PubMed E-utilities (NCBI) |
 | Package manager | npm |
 | Deployment | Vercel |
@@ -73,8 +86,8 @@ page.tsx renders PaperCard for each result
 **Base URL:** `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/`
 
 **Key endpoints:**
-- `esearch.fcgi` — search for paper IDs by keyword query
-- `efetch.fcgi` — fetch full records (abstracts) by ID list
+- `esearch.fcgi` — search for paper IDs by keyword query (`retmode=json`)
+- `efetch.fcgi` — fetch full records as XML (`rettype=abstract&retmode=xml`)
 
 **Rate limits:**
 - Without API key: 3 requests/second
@@ -85,18 +98,42 @@ page.tsx renders PaperCard for each result
 - Filter by `hasabstract[text]` to ensure retrievable abstracts
 - Limit to recent papers: `2015:2026[pdat]`
 
-**XML parsing:** Uses `fast-xml-parser` npm package. See `lib/pubmed.ts` for extraction logic.
+**XML parsing — important quirks:**
+- Uses `fast-xml-parser` v5. Parser config in `lib/pubmed.ts` sets `isArray` for `PubmedArticle`, `Author`, `AbstractText` to handle single-result edge cases.
+- `PMID` comes back as `{ '#text': number, '@_Version': '1' }` — use the `getText()` helper.
+- `AbstractText` can be a string (simple abstract) or array of objects with `@_Label` (structured abstract like BACKGROUND/METHODS/RESULTS). `extractAbstract()` in `lib/pubmed.ts` handles both.
+- Some papers have no `Abstract` node at all — handled gracefully (returns empty string).
+- `PubDate` may have `Year` or only `MedlineDate` (e.g. "2023 Jan-Feb") — `extractYear()` handles both.
 
 **Environment variable:** `NCBI_API_KEY` (optional but recommended)
 
 ## Claude API (next step — not yet implemented)
 
-**Model:** `claude-sonnet-4-6` (default — good balance of cost and capability)
+**Model:** `claude-sonnet-4-6`
+
+**Planned file:** `lib/claude.ts`
 
 **Planned usage:**
-- After PubMed search returns papers, send abstracts to Claude
-- Claude synthesizes evidence into structured supplement recommendations
-- Returns `SupplementRecommendation[]` (name, mechanism, evidence quality, dosage, caveats)
+```typescript
+import Anthropic from '@anthropic-ai/sdk';
+const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+
+// Send PubMed abstracts + user goals → get structured supplement recommendations
+```
+
+**What Claude should return** (`SupplementRecommendation[]`):
+```typescript
+interface SupplementRecommendation {
+  name: string;
+  mechanism: string;
+  evidenceQuality: 'strong' | 'moderate' | 'preliminary';
+  typicalDosage: string;
+  caveats: string[];
+  supportingPmids: string[];  // link back to specific PubMed papers
+}
+```
+
+**Integration point:** Extend `app/api/search/route.ts` — after getting `PubMedPaper[]` from PubMed, pass them to Claude for synthesis before returning the response.
 
 **Environment variable:** `ANTHROPIC_API_KEY`
 
@@ -158,6 +195,13 @@ git push origin main
 - API routes live in `app/api/` — never expose API keys to the client
 - PubMed calls happen server-side only (in API routes)
 - Claude API calls will also be server-side only
-- Add a disclaimer: recommendations are for informational purposes, not medical advice
-- Cache PubMed results where possible (Next.js `fetch` cache with `revalidate: 3600`)
-- Error states: handle PubMed API failures gracefully
+- Disclaimer text is already in `app/page.tsx` footer: "Results are from the PubMed database. This is not medical advice."
+- PubMed fetch cache: `{ next: { revalidate: 3600 } }` — already set in `lib/pubmed.ts`
+- The `@AGENTS.md` line at the top of this file is **required** — it injects Next.js 16-specific rules for the AI agent. Do not remove it.
+- `package.json` name is `supp-ai` (was `supp-scaffold` from the scaffold — already corrected)
+
+## Known Issues / Gotchas
+
+- **Node.js version:** The project runs on Node 23. `eslint-visitor-keys` warns about engine mismatch — harmless, ignore it.
+- **Workspace root warning:** Next.js detects a lockfile at `/Users/kobitrethowen/package-lock.json` and warns about workspace root. Set `turbopack.root` in `next.config.ts` if this becomes a problem.
+- **Scaffolding note:** `create-next-app` overwrites `CLAUDE.md` with `@AGENTS.md` and replaces `.git`. If re-scaffolding is ever needed, scaffold in a temp dir and copy only non-hidden files (`cp -r /tmp/scaffold/* .` not `cp -r /tmp/scaffold/. .`).
