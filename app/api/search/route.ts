@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchPubMed } from '@/lib/pubmed';
-import { extractSearchKeyword } from '@/lib/claude';
+import { extractSearchKeyword, findSupplementsInPapers } from '@/lib/claude';
 import type { SearchResponse, SearchError } from '@/lib/types';
 
 export async function GET(
@@ -15,7 +15,8 @@ export async function GET(
   try {
     const keyword = await extractSearchKeyword(query);
     const papers = await searchPubMed(keyword, 10);
-    return NextResponse.json({ papers, total: papers.length, query, keyword });
+    const topSupplements = await findSupplementsInPapers(papers);
+    return NextResponse.json({ papers, total: papers.length, query, keyword, topSupplements });
   } catch (err) {
     console.error('Search error:', err);
     return NextResponse.json(
