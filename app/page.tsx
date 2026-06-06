@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import PaperCard from '@/components/PaperCard';
 import type { PubMedPaper, SupplementCount } from '@/lib/types';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
@@ -118,32 +117,25 @@ export default function Home() {
 
             {/* Top supplement card */}
             {topSupplements.length > 0 && (
-              <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                  Most mentioned supplement{topSupplements.length > 1 ? 's' : ''}
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-widest text-amber-600">
+                  Top evidence-backed supplement
                 </p>
-                <p className="mt-1 text-lg font-bold text-amber-900">
+                <p className="mt-2 text-3xl font-bold text-amber-900">
                   {topSupplements.map((s) => s.name).join(' · ')}
                 </p>
-                <p className="mt-0.5 text-sm text-amber-700">
+                <p className="mt-2 text-sm text-amber-700">
                   {topSupplements.length === 1
-                    ? `Found in ${topSupplements[0].paperCount} of ${papers.length} papers`
-                    : `Each found in ${topSupplements[0].paperCount} of ${papers.length} papers`}
+                    ? `Effective in ${topSupplements[0].paperCount} of ${papers.length} papers analyzed`
+                    : `Tied — each effective in ${topSupplements[0].paperCount} of ${papers.length} papers analyzed`}
                 </p>
               </div>
             )}
 
-            <p className="mb-4 text-sm text-gray-500">
-              {papers.length === 0
-                ? `No results found for "${keyword || lastQuery}".`
-                : `${papers.length} result${papers.length !== 1 ? 's' : ''}`}
-            </p>
-
-            {papers.length > 0 && (
-              <div className="flex flex-col gap-4">
-                {papers.map((paper) => (
-                  <PaperCard key={paper.pmid} paper={paper} />
-                ))}
+            {topSupplements.length === 0 && papers.length > 0 && (
+              <div className="mt-2 rounded-xl border border-gray-200 bg-white px-5 py-4 text-sm text-gray-500">
+                No supplements with clear evidence of effectiveness were found in these{' '}
+                {papers.length} papers.
               </div>
             )}
           </div>

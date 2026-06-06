@@ -39,12 +39,16 @@ export async function findSupplementsInPapers(
       messages: [
         {
           role: 'user',
-          content: `You are analyzing medical research abstracts. For each paper below, identify any dietary supplements mentioned (vitamins, minerals, herbs, amino acids, probiotics, fatty acids, plant extracts, etc.).
+          content: `You are analyzing medical research abstracts to find supplements with evidence of effectiveness.
+
+For each paper below, identify dietary supplements (vitamins, minerals, herbs, amino acids, probiotics, fatty acids, plant extracts, etc.) that the abstract reports as EFFECTIVE or BENEFICIAL for the health outcome studied.
+
+ONLY include a supplement if the abstract's findings or conclusions indicate it had a positive, significant, or beneficial effect. Do NOT include a supplement if the abstract says it showed no significant effect, was not associated with improvement, had neutral or negative results, or if the evidence was inconclusive.
 
 Return ONLY valid JSON — no explanation, no markdown, no code fences. Use this exact format:
 [{"pmid":"12345","supplements":["Vitamin D","Omega-3"]},{"pmid":"67890","supplements":[]}]
 
-If a paper mentions no supplements, return an empty array for its supplements field.
+If a paper mentions no supplements with positive results, return an empty array for its supplements field.
 
 Papers:
 ${abstractsText}`,
