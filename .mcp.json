@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"]
+      "command": "node",
+      "args": ["/Users/kobitrethowen/.npm/_npx/eea2bd7412d4593b/node_modules/@upstash/context7-mcp/dist/index.js"]
     }
   }
 }
