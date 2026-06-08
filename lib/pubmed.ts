@@ -3,6 +3,17 @@ import type { PubMedPaper } from './types';
 
 const BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 
+// Broad filter scoping searches to dietary-supplement literature (MeSH headings + title/abstract
+// keywords). ANDed with the topic keyword so results are about both the user's health goal and
+// supplements/nutrients — without requiring the user to mention a supplement themselves.
+const SUPPLEMENT_FILTER =
+  '("Dietary Supplements"[MeSH Terms] OR "Vitamins"[MeSH Terms] OR "Minerals"[MeSH Terms] ' +
+  'OR "Plant Extracts"[MeSH Terms] OR "Probiotics"[MeSH Terms] OR "Phytotherapy"[MeSH Terms] ' +
+  'OR "Fatty Acids, Omega-3"[MeSH Terms] OR "Amino Acids"[MeSH Terms] ' +
+  'OR supplement*[tiab] OR vitamin*[tiab] OR mineral*[tiab] OR herbal*[tiab] ' +
+  'OR botanical*[tiab] OR nutraceutical*[tiab] OR probiotic*[tiab] OR "amino acid*"[tiab] ' +
+  'OR "omega-3"[tiab] OR "fish oil"[tiab] OR antioxidant*[tiab])';
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -130,7 +141,7 @@ export async function searchPubMed(
   // Step 1: esearch — get matching PMIDs
   const searchUrl = new URL(`${BASE_URL}/esearch.fcgi`);
   searchUrl.searchParams.set('db', 'pubmed');
-  searchUrl.searchParams.set('term', query);
+  searchUrl.searchParams.set('term', `(${query}) AND ${SUPPLEMENT_FILTER}`);
   searchUrl.searchParams.set('retmax', String(maxResults));
   searchUrl.searchParams.set('retmode', 'json');
   searchUrl.searchParams.set('sort', 'relevance');
