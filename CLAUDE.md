@@ -236,16 +236,6 @@ git push origin main
 ## Known Issues / Gotchas
 
 - **Node.js version:** The project runs on Node 23. `eslint-visitor-keys` warns about engine mismatch — harmless, ignore it.
-- **Workspace root warning:** Next.js detects a lockfile at `/Users/kobitrethowen/package-lock.json` and warns about workspace root. Set `turbopack.root` in `next.config.ts` if this becomes a problem.
+- **Workspace root warning:** Next.js detects a lockfile at `/Users/kobitrethowen/package-lock.json` and warns about workspace root. Fixed — `turbopack.root` is set in `next.config.ts` pointing to `__dirname`.
+- **Dev server hang:** If `npm run dev` starts but never binds to port 3000 and produces no output, the native Node binaries are likely corrupted. Fix: `rm -rf node_modules && npm install`. Always stop the dev server with Ctrl+C (not force-kill) to avoid corrupting binaries.
 - **Scaffolding note:** `create-next-app` overwrites `CLAUDE.md` with `@AGENTS.md` and replaces `.git`. If re-scaffolding is ever needed, scaffold in a temp dir and copy only non-hidden files (`cp -r /tmp/scaffold/* .` not `cp -r /tmp/scaffold/. .`).
-- **MCP server connection timeouts (context7 / playwright):** these were configured via `npx -y <package>`, which made Claude Code spawn `npm exec` with cwd = this project. Because `node_modules/` here has ~277 packages, npm walks the whole tree resolving the package — 50-90+ seconds on a cold cache, blowing past Claude Code's hardcoded 30s MCP connection timeout, so both servers consistently failed with "timed out after 30000ms".
-  - **Fix:** configs now invoke the binaries already in the npx cache directly via `node <path>`, skipping `npx` resolution entirely. Edited in three places:
-    - `/Users/kobitrethowen/Desktop/supp.ai/.mcp.json` (project scope — context7)
-    - `~/.claude/mcp.json` (user scope — context7 + playwright)
-    - Project-local scope inside `~/.claude.json` under `projects."/Users/kobitrethowen/Desktop/supp.ai".mcpServers` (playwright — manage with `claude mcp add/remove -s local`, don't hand-edit)
-  - **Pinned binary paths** (record these — needed if cache is ever cleared):
-    - context7 (v3.1.0): `~/.npm/_npx/eea2bd7412d4593b/node_modules/@upstash/context7-mcp/dist/index.js`
-    - playwright (v0.0.75): `~/.npm/_npx/9833c18b2d85bc59/node_modules/@playwright/mcp/cli.js`
-  - **Do not** run `npm cache clean` / `npm cache clean --force`, `npx clear-npx-cache`, manually delete the two hash dirs above, or run disk-cleanup tools (CleanMyMac etc.) against `~/.npm` — any of these wipes the npx cache and breaks the configured paths (spawn/`ENOENT` errors).
-  - **Side effect:** the configs are now pinned to the exact versions above (no more `@latest` auto-resolution) — that's what makes them stable, but they won't auto-update.
-  - **Recovery (if cache is cleared, or to intentionally update versions):** run `npx -y @upstash/context7-mcp@latest` (and the playwright equivalent) once from a directory *without* a large `node_modules` (e.g. `~`) so it resolves fast and creates a fresh `~/.npm/_npx/<new-hash>/` dir; find it with `ls ~/.npm/_npx/`; update the path in `.mcp.json` and `~/.claude/mcp.json`; update the local-scope playwright entry via `claude mcp remove playwright -s local && claude mcp add playwright -s local -- node <new-path>/cli.js`; verify with `claude mcp list` (both should show `✓ Connected`).
