@@ -3,29 +3,57 @@ import type { PubMedPaper, SupplementCount } from './types';
 
 const client = new Anthropic();
 
-export async function extractSearchKeyword(userGoal: string): Promise<string> {
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 64,
-    messages: [
-      {
-        role: 'user',
-        content: `Extract a concise PubMed search keyword or short phrase (2-4 words max) that best represents the health topic from this user goal. Return only the keyword or phrase, nothing else — no punctuation, no explanation.
+export async function rankSupplementsForGoal(
+  userGoal: string
+): Promise<{ supplements: string[]; goalKeyword: string }> {
+  const fallback = { supplements: [], goalKeyword: '' };
+
+  let response;
+  try {
+    response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 256,
+      messages: [
+        {
+          role: 'user',
+          content: `Given this health goal, do two things:
+1. List the 3–5 most evidence-backed dietary supplements that could help, ranked by likelihood of effectiveness.
+2. Extract a short 2–3 word keyword capturing the core health outcome (e.g. "protein intake", "sleep quality", "joint inflammation").
+
+Return ONLY valid JSON in this exact format — no explanation, no markdown:
+{"supplements":["Whey Protein","Creatine"],"goalKeyword":"protein intake"}
 
 Goal: "${userGoal}"`,
-      },
-    ],
-  });
+        },
+      ],
+    });
+  } catch (err) {
+    console.error('rankSupplementsForGoal error:', err);
+    return fallback;
+  }
 
-  const text =
+  const raw =
     response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-  return text || userGoal;
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed.supplements) || typeof parsed.goalKeyword !== 'string') {
+      return fallback;
+    }
+    return { supplements: parsed.supplements, goalKeyword: parsed.goalKeyword };
+  } catch (err) {
+    console.error('rankSupplementsForGoal JSON parse error:', err, '\nRaw:', raw);
+    return fallback;
+  }
 }
 
-export async function findSupplementsInPapers(
-  papers: PubMedPaper[]
-): Promise<SupplementCount[]> {
-  if (papers.length === 0) return [];
+export async function countPositivePapersForSupplement(
+  papers: PubMedPaper[],
+  supplement: string,
+  userGoal: string
+): Promise<number> {
+  if (papers.length === 0) return 0;
 
   const abstractsText = papers
     .map((p) => `PMID: ${p.pmid}\n${p.abstract || '(no abstract)'}`)
@@ -34,65 +62,29 @@ export async function findSupplementsInPapers(
   let response;
   try {
     response = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 1024,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 16,
       messages: [
         {
           role: 'user',
-          content: `You are analyzing medical research abstracts to find supplements with evidence of effectiveness.
+          content: `How many of the following research paper abstracts show positive or promising evidence that "${supplement}" helps with: "${userGoal}"?
 
-For each paper below, identify dietary supplements (vitamins, minerals, herbs, amino acids, probiotics, fatty acids, plant extracts, etc.) that the abstract reports as EFFECTIVE or BENEFICIAL for the health outcome studied.
+Count only papers where the results support or suggest a beneficial effect. Do not count papers where the results were neutral, negative, or inconclusive.
 
-ONLY include a supplement if the abstract's findings or conclusions indicate it had a positive, significant, or beneficial effect. Do NOT include a supplement if the abstract says it showed no significant effect, was not associated with improvement, had neutral or negative results, or if the evidence was inconclusive.
-
-Return ONLY valid JSON — no explanation, no markdown, no code fences. Use this exact format:
-[{"pmid":"12345","supplements":["Vitamin D","Omega-3"]},{"pmid":"67890","supplements":[]}]
-
-If a paper mentions no supplements with positive results, return an empty array for its supplements field.
+Return ONLY a single integer (e.g. 3). No explanation.
 
 Papers:
 ${abstractsText}`,
         },
       ],
     });
-  } catch {
-    return [];
+  } catch (err) {
+    console.error('countPositivePapersForSupplement error:', err);
+    return 0;
   }
 
   const raw =
     response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-
-  let parsed: { pmid: string; supplements: string[] }[];
-  try {
-    parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-  } catch {
-    return [];
-  }
-
-  // Count paper-level frequency; normalize to lowercase for dedup, preserve display name
-  const freq = new Map<string, { displayName: string; count: number; pmids: string[] }>();
-  for (const entry of parsed) {
-    if (!Array.isArray(entry.supplements)) continue;
-    for (const name of entry.supplements) {
-      const key = name.trim().toLowerCase();
-      if (!key) continue;
-      const existing = freq.get(key);
-      if (existing) {
-        existing.count += 1;
-        existing.pmids.push(entry.pmid);
-      } else {
-        freq.set(key, { displayName: name.trim(), count: 1, pmids: [entry.pmid] });
-      }
-    }
-  }
-
-  if (freq.size === 0) return [];
-
-  const sorted = Array.from(freq.values())
-    .map(({ displayName, count, pmids }) => ({ name: displayName, paperCount: count, pmids }))
-    .sort((a, b) => b.paperCount - a.paperCount);
-
-  const maxCount = sorted[0].paperCount;
-  return sorted.filter((s) => s.paperCount === maxCount);
+  const num = parseInt(raw.match(/\d+/)?.[0] ?? '', 10);
+  return isNaN(num) ? 0 : num;
 }

@@ -19,9 +19,9 @@
 | Next.js scaffold | Done |
 | PubMed search UI + API | Done — `app/page.tsx`, `app/api/search/route.ts`, `lib/pubmed.ts` |
 | PubMed XML parsing | Done — `fast-xml-parser` in `lib/pubmed.ts` |
-| Claude keyword extraction | Done — `extractSearchKeyword()` in `lib/claude.ts` using `claude-sonnet-4-6` |
-| Claude supplement detection | Done — `findSupplementsInPapers()` in `lib/claude.ts` using `claude-haiku-4-5` |
-| Top supplement highlight card | Done — prominent amber card as the sole result in `app/page.tsx`; only counts supplements reported as effective |
+| Claude supplement ranking | Done — `rankSupplementsForGoal()` in `lib/claude.ts` using `claude-haiku-4-5` |
+| Claude evidence verification | Done — `countPositivePapersForSupplement()` in `lib/claude.ts` using `claude-haiku-4-5` |
+| Top supplement highlight card | Done — prominent amber card as the sole result in `app/page.tsx`; requires ≥2 positive papers |
 | Full Claude synthesis / recommendations | Not started — see future direction below |
 | User goal/problem input form | Not started |
 
@@ -34,7 +34,7 @@
 | Styling | Tailwind CSS 4 |
 | React | React 19 |
 | XML parser | `fast-xml-parser` ^5 (for PubMed efetch responses) |
-| AI | Anthropic Claude API — `claude-sonnet-4-6` (keyword extraction) + `claude-haiku-4-5` (supplement detection) |
+| AI | Anthropic Claude API — `claude-haiku-4-5` (supplement ranking + evidence verification) |
 | External API | PubMed E-utilities (NCBI) |
 | Package manager | npm |
 | Deployment | Vercel |
@@ -53,7 +53,7 @@ supp.ai/
 │   └── PaperCard.tsx       # Single paper result card (title, authors, abstract, link)
 ├── lib/
 │   ├── pubmed.ts           # PubMed E-utilities API client + XML parser
-│   ├── claude.ts           # Claude API calls: keyword extraction (Sonnet) + supplement detection (Haiku)
+│   ├── claude.ts           # Claude API calls: supplement ranking + evidence verification (both Haiku)
 │   └── types.ts            # Shared TypeScript interfaces
 └── AGENTS.md               # Next.js version-specific agent rules (do not delete)
 ```
@@ -75,24 +75,27 @@ User types query → page.tsx form
         ▼
 GET /api/search?q={query}  (app/api/search/route.ts)
         │
-        ├─► lib/claude.ts: extractSearchKeyword(query)   [claude-sonnet-4-6]
-        │     Turns freeform goal into a concise PubMed keyword (2-4 words)
+        ├─► lib/claude.ts: rankSupplementsForGoal(query)   [claude-haiku-4-5]
+        │     Single call → ranked list of 3–5 supplement candidates + short goal keyword
+        │     e.g. { supplements: ["Whey Protein","Creatine"], goalKeyword: "protein intake" }
         │
-        ├─► lib/pubmed.ts: searchPubMed(keyword, 10)
-        │     Step 1 — esearch.fcgi: get matching PMIDs
-        │     Step 2 — efetch.fcgi: fetch XML with titles, abstracts, authors
-        │     Returns PubMedPaper[]
-        │
-        ├─► lib/claude.ts: findSupplementsInPapers(papers)   [claude-haiku-4-5]
-        │     Single call: all 10 abstracts → JSON list of supplements per PMID
-        │     TypeScript counts paper-level frequency, returns top SupplementCount[]
-        │     (all supplements tied at the max count — handles ties)
-        │
-        ▼
+        └─► For each candidate supplement (sequential, stops at first winner):
+              │
+              ├─► lib/pubmed.ts: searchPubMed("Whey Protein protein intake", 10)
+              │     Targeted search combining supplement name + goal keyword
+              │     Returns PubMedPaper[]
+              │
+              ├─► lib/claude.ts: countPositivePapersForSupplement(papers, supplement, goal)
+              │     [claude-haiku-4-5] — returns a single integer
+              │     Counts papers showing positive/promising evidence for this supplement + goal
+              │
+              └─► if count ≥ 2: this supplement wins → break loop
+                  if count < 2: try next candidate
+
 page.tsx renders:
-  - teal keyword banner ("Searching PubMed for: X")
-  - amber supplement card ("Top evidence-backed supplement: Vitamin D — Effective in 7 of 10 papers analyzed")
-  - fallback message if no effective supplements found (no paper list is shown)
+  - teal keyword banner ("Searching PubMed for: Whey Protein protein intake")
+  - amber supplement card ("Top evidence-backed supplement: Whey Protein — Effective in N of 10 papers analyzed")
+  - fallback message if no candidate clears ≥2 positive papers
 ```
 
 ## PubMed E-utilities API
@@ -123,21 +126,20 @@ page.tsx renders:
 
 ## Claude API (integrated)
 
-**File:** `lib/claude.ts` — two exported functions:
+**File:** `lib/claude.ts` — two exported functions. Both use `claude-haiku-4-5`.
 
-### `extractSearchKeyword(userGoal: string): Promise<string>`
-- Model: `claude-sonnet-4-6`
-- Converts a freeform user goal (e.g. "I can't sleep") into a concise PubMed keyword (e.g. "sleep quality insomnia")
-- Called first in the search route before PubMed
+### `rankSupplementsForGoal(userGoal: string): Promise<{ supplements: string[]; goalKeyword: string }>`
+- Single Haiku call — hypothesis step
+- Returns a ranked list of 3–5 supplement candidates the model believes are most evidence-backed for the goal, plus a 2–3 word keyword capturing the core health outcome
+- On JSON parse failure returns `{ supplements: [], goalKeyword: '' }`
 
-### `findSupplementsInPapers(papers: PubMedPaper[]): Promise<SupplementCount[]>`
-- Model: `claude-haiku-4-5` (~$0.005/search)
-- Single API call with all paper abstracts
-- Prompt asks for JSON: `[{"pmid":"...","supplements":["Vitamin D","Omega-3"]}]`
-- Only supplements the abstract reports as **effective or beneficial** are included — neutral, inconclusive, or negative results are excluded
-- TypeScript counts paper-level frequency (normalized lowercase for dedup, original casing for display)
-- Returns all supplements tied at the highest count
-- Gracefully returns `[]` on API errors or unparseable JSON
+### `countPositivePapersForSupplement(papers, supplement, userGoal): Promise<number>`
+- Single Haiku call — verification step, called once per candidate until a winner is found
+- Passes all paper abstracts and asks: "how many papers show positive evidence that [supplement] helps with [goal]?"
+- Returns a plain integer (0 on error)
+- A count ≥2 is treated as sufficient evidence to surface the recommendation
+
+**Architecture note:** This is a "hypothesis-first, verify-second" pattern. Haiku's training knowledge ranks candidates; PubMed + Haiku verify each one in order until the first passes. This avoids the failure mode of the old approach (broad PubMed searches returning papers about many different supplements, none reaching the ≥2 threshold).
 
 **Environment variable:** `ANTHROPIC_API_KEY`
 
@@ -196,8 +198,8 @@ interface SearchResponse {
   papers: PubMedPaper[];
   total: number;
   query: string;                     // original user goal input
-  keyword: string;                   // PubMed keyword extracted by Claude Sonnet
-  topSupplements: SupplementCount[]; // supplements tied at max paper count (may be 1+)
+  keyword: string;                   // PubMed search term used for the winning supplement (e.g. "Whey Protein protein intake")
+  topSupplements: SupplementCount[]; // winning supplement (array of 1), or empty if none verified
 }
 ```
 
@@ -239,3 +241,4 @@ git push origin main
 - **Workspace root warning:** Next.js detects a lockfile at `/Users/kobitrethowen/package-lock.json` and warns about workspace root. Fixed — `turbopack.root` is set in `next.config.ts` pointing to `__dirname`.
 - **Dev server hang:** If `npm run dev` starts but never binds to port 3000 and produces no output, the native Node binaries are likely corrupted. Fix: `rm -rf node_modules && npm install`. Always stop the dev server with Ctrl+C (not force-kill) to avoid corrupting binaries.
 - **Scaffolding note:** `create-next-app` overwrites `CLAUDE.md` with `@AGENTS.md` and replaces `.git`. If re-scaffolding is ever needed, scaffold in a temp dir and copy only non-hidden files (`cp -r /tmp/scaffold/* .` not `cp -r /tmp/scaffold/. .`).
+- **git push broken:** `git pack-objects` dies with SIGBUS (signal 10) on this machine — same class of issue as the corrupted Node binaries. Use the GitHub MCP (`mcp__github__push_files`) to push files directly to GitHub as a workaround.
